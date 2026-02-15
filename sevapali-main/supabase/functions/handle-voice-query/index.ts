@@ -13,7 +13,8 @@ serve(async (req) => {
     }
 
     try {
-        const { audio, language } = await req.json();
+        const { audio, language, context } = await req.json();
+        const currentPage = context?.page || '/';
 
         if (!audio) {
             throw new Error('No audio data provided');
@@ -38,8 +39,8 @@ serve(async (req) => {
         const formData = new FormData();
         formData.append("file", file, "recording.webm");
         formData.append("model", "whisper-1");
-        if (language === 'mr') {
-            formData.append("language", "mr");
+        if (language && language !== 'en') {
+            formData.append("language", language);
         }
 
         // 3. Call Whisper API
@@ -62,10 +63,58 @@ serve(async (req) => {
 
         console.log("Transcribed Text:", transcribedText);
 
-        // 4. Call Chat API with the transcribed text
-        const systemPrompt = language === 'mr'
-            ? "You are a helpful AI assistant for the Government of Maharashtra SEVA PALI portal. Answer concisely in Marathi."
-            : "You are a helpful AI assistant for the Government of Maharashtra SEVA PALI portal. Answer concisely.";
+        // 4. Call Chat API with the transcribed text & Context
+        const systemPrompt = `
+        You are JanSeva AI, the intelligent voice assistant for the Government of Maharashtra's "SevaPali" portal.
+        You have FULL CONTROL over the application. Your goal is to help citizens and officials navigate and execute tasks.
+        
+        CURRENT CONTEXT:
+        - User is on page: "${currentPage}"
+        - Language Preference: "${language || 'en'}"
+
+        APP MAP (Known Routes):
+        [Citizen]
+        - Dashboard: /citizen/dashboard (Overview of tokens & services)
+        - Book Token: /citizen/book-token (New appointment)
+        - My Tokens: /citizen/my-tokens (Check status/history)
+        - AI Advisor: /citizen/advisor (Eligibility check wizard)
+        - AI Assistant: /citizen/assistant (General help)
+        - Notifications: /citizen/notifications
+        - Profile/Settings: /citizen/profile
+
+        [Official]
+        - Dashboard: /official/dashboard (Counter overview)
+        - Queue Management: /official/queue (Manage active tokens)
+        - Live Queue: /official/live-queue
+        - Scan QR: /official/scan (Verify citizen token)
+        - Analytics: /official/analytics (Reports)
+        - Verification: /official/verify/:id
+
+        [General]
+        - Home: /
+        - Login: /login
+        - Register: /register
+        - Schemes: /schemes
+
+        AVAILABLE ACTIONS (JSON Format):
+        1. NAVIGATE: { type: "NAVIGATE", payload: { path: "/exact/path" } }
+           - Use this when the user wants to go somewhere.
+        
+        2. FILL_FORM: { type: "FILL_FORM", payload: { field: "field_id", value: "inferred_value" } }
+           - Use this to fill inputs on the CURRENT page.
+           - Inference: If user says "My name is Rahul" and you are on /book-token, infer field "name".
+
+        3. CLICK: { type: "CLICK", payload: { target: "element_id" } }
+           - Use strictly for buttons like "submit", "next", "confirm".
+
+        INSTRUCTIONS:
+        - Analyze the user's voice command + current page context.
+        - Return a JSON object with:
+          - "text_response": A helpful, natural response (max 2 sentences). If the user asks a question about the app, answer it based on the App Map.
+          - "action": One of the actions above, or null.
+          - If the user speaks a local language (Marathi, Hindi, Kannada, Telugu, Tamil), REPLY IN THAT LANGUAGE, but keep "action" fields in English.
+          - Be proactive. If on Dashboard and user says "Book token", navigate them.
+        `;
 
         const chatResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -75,7 +124,8 @@ serve(async (req) => {
             },
             body: JSON.stringify({
                 model: 'gpt-4o-mini',
-                max_tokens: 800, // User specified limit: 500-1000
+                max_tokens: 500,
+                response_format: { type: "json_object" },
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: transcribedText }
@@ -89,11 +139,19 @@ serve(async (req) => {
         }
 
         const chatData = await chatResponse.json();
-        const replyText = chatData.choices[0].message.content;
+        const rawContent = chatData.choices[0].message.content;
+        let pResult;
+        try {
+            pResult = JSON.parse(rawContent);
+        } catch (e) {
+            console.error("Failed to parse LLM JSON:", rawContent);
+            pResult = { text_response: rawContent, action: null }; // Fallback
+        }
 
         return new Response(JSON.stringify({
             query: transcribedText,
-            response: replyText
+            response: pResult.text_response,
+            action: pResult.action
         }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });

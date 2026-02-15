@@ -11,6 +11,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useCheckInToken } from '@/hooks/useTokens';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { getLocalDateString } from '@/lib/utils';
 
 const ScanPage: React.FC = () => {
     const { language } = useLanguage();
@@ -27,6 +28,17 @@ const ScanPage: React.FC = () => {
 
     // Initialize QR Scanner
     useEffect(() => {
+        // DEBUG: Check what tokens exist in DB to verify RLS
+        const checkTokens = async () => {
+            const { data, error } = await supabase
+                .from('tokens')
+                .select('token_number, id, created_at')
+                .order('created_at', { ascending: false })
+                .limit(5);
+            console.log("DEBUG: Recent tokens in DB:", { data, error });
+        };
+        checkTokens();
+
         if (showScanner) {
             const startScanner = async () => {
                 // Ensure DOM element is present
@@ -124,7 +136,7 @@ const ScanPage: React.FC = () => {
         try {
             let dbQuery = supabase
                 .from('tokens')
-                .select('*, profiles:user_id(full_name, phone_number)');
+                .select('*'); // Removed invalid join: profiles:user_id(...) because FK is to auth.users not profiles
 
             if (searchId) {
                 dbQuery = dbQuery.eq('id', searchId);
@@ -132,29 +144,74 @@ const ScanPage: React.FC = () => {
                 dbQuery = dbQuery.eq('token_number', searchTokenNo);
             }
 
-            const { data, error } = await dbQuery
-                .eq('appointment_date', new Date().toISOString().split('T')[0]) // Only today's tokens
-                .single();
+            const today = getLocalDateString();
+            console.log('Scanning for token:', { tokenInput, today });
 
-            if (error) throw error;
+            // 1. Fetch Token
+            const { data: tokenData, error: tokenError } = await dbQuery.maybeSingle();
 
-            console.log("Supabase Data:", data); // DEBUG: Check structure
+            console.log('Scan result:', { tokenData, tokenError });
+
+            if (tokenError || !tokenData) {
+                console.error("Scan missing data/error:", { tokenError, tokenData, searchTokenNo });
+                toast.error(
+                    language === 'mr'
+                        ? `टोकन सापडले नाही: ${searchTokenNo}`
+                        : `Token not found: ${searchTokenNo}`
+                );
+                return;
+            }
+
+            // 2. Fetch Profile manually (since we can't join easily on auth.users FK)
+            let profileData = null;
+            if (tokenData.user_id) {
+                const { data: pData } = await supabase
+                    .from('profiles')
+                    .select('full_name, phone') // Correct column is 'phone'
+                    .eq('id', tokenData.user_id)
+                    .single();
+                profileData = pData;
+            }
+
+            const data = {
+                ...tokenData,
+                profiles: profileData
+            };
+
+            // ERROR HANDLING & VALIDATION FOLLOWS...
+            // Check date manually for better error message
+            if (data.appointment_date !== today) {
+                console.warn('Date mismatch:', { tokenDate: data.appointment_date, today });
+                toast.error(`Token is for ${data.appointment_date}, not today!`);
+                return;
+            }
 
             // DEPARTMENT CHECK
             if (profile?.assigned_department_id && data.department_id !== profile.assigned_department_id) {
                 toast.error(
                     language === 'mr'
                         ? 'हे टोकन तुमच्या विभागाचे नाही'
-                        : `Token belongs to another department (${data.department || 'Unknown'})`
+                        : `Wrong Department. Token is for: ${data.department || 'Unknown'}`
                 );
                 setIsSearching(false);
                 return;
             }
 
-            // SAFETY: Ensure profiles is an object, not array
+            // OFFICE CHECK - Vital for Queue Visibility
+            if (profile?.assigned_office_id && data.office_id !== profile.assigned_office_id) {
+                toast.error(
+                    language === 'mr'
+                        ? 'हे टोकन दुसर्‍या कार्यालयाचे आहे'
+                        : `Wrong Office. Token is for: ${data.office_name || 'Unknown'}`
+                );
+                setIsSearching(false);
+                return;
+            }
+
+            // SAFETY: Handle profiles array/object return from join logic simulation
             const safeData = {
                 ...data,
-                profiles: Array.isArray(data.profiles) ? data.profiles[0] : data.profiles
+                profiles: data.profiles
             };
 
             setScannedToken(safeData);
@@ -172,8 +229,10 @@ const ScanPage: React.FC = () => {
 
         try {
             await checkInMutation.mutateAsync(scannedToken.id);
-            // On success, redirect to verify page
-            navigate(`/official/verify/${scannedToken.id}`);
+            // On success, clear and allow next scan
+            setScannedToken(null);
+            setTokenInput('');
+            toast.success("Token added to queue!");
         } catch (error: any) {
             // Error handled by hook toast usually, but let's be safe
             // toast.error(error.message);

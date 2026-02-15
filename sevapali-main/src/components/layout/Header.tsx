@@ -26,9 +26,9 @@ const Header: React.FC = () => {
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3 group">
-            <div className="relative w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 via-white to-green-500 p-[2px] shadow-lg group-hover:scale-105 transition-transform">
-              <div className="w-full h-full rounded-[10px] bg-background flex items-center justify-center">
-                <span className="text-foreground font-bold text-lg">JS</span>
+            <div className="relative w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 via-white to-green-500 p-[2px] shadow-lg group-hover:scale-105 transition-transform overflow-hidden">
+              <div className="w-full h-full rounded-[10px] bg-background flex items-center justify-center overflow-hidden">
+                <img src="/janseva-logo.png" alt="JanSeva Logo" className="w-full h-full object-cover" />
               </div>
             </div>
             <div className="flex flex-col">

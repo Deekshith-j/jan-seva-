@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { Database } from '@/integrations/supabase/types';
+import { getLocalDateString } from '@/lib/utils';
 
 export type Token = Database['public']['Tables']['tokens']['Row'];
 
@@ -27,15 +28,18 @@ export const useMyTokens = () => {
 };
 
 // Hook for officials to fetch all tokens (for queue management)
-export const useQueueTokens = (officeId?: string, departmentId?: string) => {
+export const useQueueTokens = (officeId?: string, departmentId?: string, enabled: boolean = true) => {
   return useQuery({
     queryKey: ['queue-tokens', officeId, departmentId],
     queryFn: async () => {
+      const today = getLocalDateString();
+      console.log('Fetching tokens for:', { today, officeId, departmentId });
+
       let query = supabase
         .from('tokens')
         .select('*')
         .in('status', ['waiting', 'serving', 'pending', 'checked_in', 'cancelled'])
-        .eq('appointment_date', new Date().toISOString().split('T')[0])
+        .eq('appointment_date', today)
         .order('created_at', { ascending: true });
 
       if (officeId) {
@@ -46,9 +50,14 @@ export const useQueueTokens = (officeId?: string, departmentId?: string) => {
       }
 
       const { data, error } = await query;
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching tokens:', error);
+        throw error;
+      }
+      console.log('Fetched tokens:', data);
       return data as Token[];
     },
+    enabled: enabled,
   });
 };
 
@@ -57,7 +66,7 @@ export const useTodayStats = () => {
   return useQuery({
     queryKey: ['today-stats'],
     queryFn: async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
 
       const { data, error } = await supabase
         .from('tokens')
@@ -186,25 +195,40 @@ export const useCheckInToken = () => {
         .single();
 
       if (fetchError) throw new Error('Token not found');
+
+      // If already waiting or serving, treat as success (idempotent)
+      if (token.status === 'waiting' || token.status === 'serving' || token.status === 'checked_in') {
+        return token as Token;
+      }
+
       if (token.status !== 'pending') throw new Error(`Token is already ${token.status}`);
 
       // 2. Validate date (simple check)
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       if (token.appointment_date !== today) throw new Error('Token is not for today');
 
       // 3. Update status to checked_in (arrived but not verified)
       const { data, error } = await supabase
         .from('tokens')
         .update({
-          status: 'checked_in',
+          status: 'waiting', // Direct to queue
           updated_at: new Date().toISOString(),
         })
         .eq('id', tokenId)
         .select()
-        .single();
+        .eq('id', tokenId)
+        .select();
 
       if (error) throw error;
-      return data as Token;
+
+      const updatedToken = data && data.length > 0 ? data[0] : null;
+
+      if (!updatedToken) {
+        // If update succeeded but returned no data (RLS?), we might just return the optimistic token or refetch.
+        // But usually this means row not found or permission denied.
+        console.warn("Check-in update returned no data. Possible RLS issue.");
+      }
+      return updatedToken as Token;
     },
     onSuccess: () => {
       toast.success('Citizen Checked-In Successfully');
@@ -247,7 +271,7 @@ export const useCallNextToken = () => {
         .from('tokens')
         .select('*')
         .eq('status', 'waiting')
-        .eq('appointment_date', new Date().toISOString().split('T')[0])
+        .eq('appointment_date', getLocalDateString())
         .order('created_at', { ascending: true }) // FIFO
         .limit(1)
         .maybeSingle();
@@ -275,6 +299,57 @@ export const useCallNextToken = () => {
       queryClient.invalidateQueries({ queryKey: ['queue-tokens'] });
       queryClient.invalidateQueries({ queryKey: ['today-stats'] });
     },
+  });
+};
+
+// Hook for skipping a token (smart re-queue)
+export const useSkipToken = () => {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  return useMutation({
+    mutationFn: async (tokenId: string) => {
+      // 1. Get current waiting queue to find 5th position
+      const today = getLocalDateString();
+      const { data: queue } = await supabase
+        .from('tokens')
+        .select('created_at')
+        .eq('status', 'waiting')
+        .eq('appointment_date', today)
+        .order('created_at', { ascending: true })
+        .limit(6); // Fetch 6 to see if there is a 5th item
+
+      let newCreatedAt = new Date().toISOString();
+
+      // If we have at least 5 people waiting, insert after the 5th
+      if (queue && queue.length >= 5) {
+        const targetToken = queue[4]; // 5th item (0-indexed)
+        if (targetToken) {
+          const targetTime = new Date(targetToken.created_at).getTime();
+          newCreatedAt = new Date(targetTime + 1000).toISOString(); // +1 second
+        }
+      }
+
+      const { error } = await supabase
+        .from('tokens')
+        .update({
+          status: 'waiting',
+          created_at: newCreatedAt, // Move to back/middle
+          served_by: null,
+          served_at: null
+        })
+        .eq('id', tokenId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.info('Token skipped and re-queued');
+      queryClient.invalidateQueries({ queryKey: ['queue-tokens'] });
+      queryClient.invalidateQueries({ queryKey: ['today-stats'] });
+    },
+    onError: () => {
+      toast.error('Failed to skip token');
+    }
   });
 };
 

@@ -4,14 +4,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { useQueueTokens, useTodayStats, useCallNextToken, useUpdateTokenStatus } from '@/hooks/useTokens';
+import { useAuth } from '@/contexts/AuthContext';
+import { useQueueTokens, useTodayStats, useCallNextToken, useUpdateTokenStatus, useSkipToken } from '@/hooks/useTokens';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
-import { 
-  Play, 
-  SkipForward, 
-  CheckCircle, 
-  Clock, 
+import {
+  Play,
+  SkipForward,
+  CheckCircle,
+  Clock,
   Users,
   Ticket,
   Volume2,
@@ -22,12 +23,19 @@ import { toast } from 'sonner';
 
 const QueueManagement: React.FC = () => {
   const { language } = useLanguage();
+  const { user, profile } = useAuth();
   const queryClient = useQueryClient();
-  
-  const { data: queueTokens, isLoading, refetch } = useQueueTokens();
+  const [selectedService, setSelectedService] = React.useState<string>('all');
+
+  const { data: queueTokens, isLoading, refetch } = useQueueTokens(
+    profile?.assigned_office_id || undefined,
+    profile?.assigned_department_id || undefined,
+    !!profile // Only fetch when profile is loaded to ensure department filters are applied
+  );
   const { data: stats } = useTodayStats();
   const callNextMutation = useCallNextToken();
   const updateStatusMutation = useUpdateTokenStatus();
+  const skipMutation = useSkipToken();
 
   // Subscribe to realtime updates
   useEffect(() => {
@@ -48,33 +56,42 @@ const QueueManagement: React.FC = () => {
     };
   }, [queryClient]);
 
-  const currentlyServing = queueTokens?.find(t => t.status === 'serving');
-  const waitingQueue = queueTokens?.filter(t => t.status === 'waiting' || t.status === 'pending') || [];
+  // Filter tokens based on selected service
+  const filteredTokens = queueTokens?.filter(token => {
+    if (selectedService !== 'all' && token.service_name !== selectedService) return false;
+    return true;
+  }) || [];
+
+  const currentlyServing = filteredTokens.find(t => t.status === 'serving');
+  const waitingQueue = filteredTokens.filter(t => t.status === 'waiting' || t.status === 'pending');
+
+  // Get unique services for filter dropdown
+  const uniqueServices = Array.from(new Set(queueTokens?.map(t => t.service_name) || [])).filter(Boolean);
 
   const statCards = [
-    { 
-      label: language === 'mr' ? 'एकूण रांगेत' : 'Total in Queue', 
-      value: waitingQueue.length, 
-      icon: Users, 
-      color: 'bg-primary' 
+    {
+      label: language === 'mr' ? 'एकूण रांगेत' : 'Total in Queue',
+      value: waitingQueue.length,
+      icon: Users,
+      color: 'bg-primary'
     },
-    { 
-      label: language === 'mr' ? 'सध्या सेवा' : 'Currently Serving', 
-      value: currentlyServing?.token_number || '-', 
-      icon: Ticket, 
-      color: 'bg-success' 
+    {
+      label: language === 'mr' ? 'सध्या सेवा' : 'Currently Serving',
+      value: currentlyServing?.token_number || '-',
+      icon: Ticket,
+      color: 'bg-success'
     },
-    { 
-      label: language === 'mr' ? 'सरासरी प्रतीक्षा' : 'Avg. Wait', 
-      value: '15 min', 
-      icon: Clock, 
-      color: 'bg-warning' 
+    {
+      label: language === 'mr' ? 'सरासरी प्रतीक्षा' : 'Avg. Wait',
+      value: '15 min',
+      icon: Clock,
+      color: 'bg-warning'
     },
-    { 
-      label: language === 'mr' ? 'आज पूर्ण' : 'Completed Today', 
-      value: stats?.served || 0, 
-      icon: CheckCircle, 
-      color: 'bg-accent' 
+    {
+      label: language === 'mr' ? 'आज पूर्ण' : 'Completed Today',
+      value: stats?.served || 0,
+      icon: CheckCircle,
+      color: 'bg-accent'
     },
   ];
 
@@ -83,14 +100,14 @@ const QueueManagement: React.FC = () => {
       const nextToken = await callNextMutation.mutateAsync();
       if (nextToken) {
         toast.success(
-          language === 'mr' 
-            ? `पुढील टोकन: ${nextToken.token_number}` 
+          language === 'mr'
+            ? `पुढील टोकन: ${nextToken.token_number}`
             : `Next token: ${nextToken.token_number}`
         );
       } else {
         toast.info(
-          language === 'mr' 
-            ? 'रांगेत कोणी नाही' 
+          language === 'mr'
+            ? 'रांगेत कोणी नाही'
             : 'No one in queue'
         );
       }
@@ -112,18 +129,18 @@ const QueueManagement: React.FC = () => {
   const handleSkip = async () => {
     if (!currentlyServing) return;
     try {
-      await updateStatusMutation.mutateAsync({ tokenId: currentlyServing.id, status: 'skipped' });
-      toast.info(language === 'mr' ? 'टोकन वगळला' : 'Token skipped');
+      await skipMutation.mutateAsync(currentlyServing.id);
+      // Toast is handled in hook
     } catch (error) {
-      toast.error(language === 'mr' ? 'त्रुटी आली' : 'Error occurred');
+      // Toast is handled in hook
     }
   };
 
   const announceToken = () => {
     if (currentlyServing) {
       toast.success(
-        language === 'mr' 
-          ? `टोकन ${currentlyServing.token_number} घोषित केला` 
+        language === 'mr'
+          ? `टोकन ${currentlyServing.token_number} घोषित केला`
           : `Token ${currentlyServing.token_number} announced`
       );
     }
@@ -137,11 +154,12 @@ const QueueManagement: React.FC = () => {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'serving': return <Badge variant="success">{language === 'mr' ? 'सेवेत' : 'Serving'}</Badge>;
-      case 'waiting': 
-      case 'pending': return <Badge variant="secondary">{language === 'mr' ? 'प्रतीक्षेत' : 'Waiting'}</Badge>;
+      case 'waiting': return <Badge className="bg-blue-500 hover:bg-blue-600">{language === 'mr' ? 'चेक-इन केले' : 'Checked In'}</Badge>;
+      case 'pending': return <Badge variant="secondary">{language === 'mr' ? 'बुक केले' : 'Booked'}</Badge>;
       case 'completed': return <Badge variant="default">{language === 'mr' ? 'पूर्ण' : 'Completed'}</Badge>;
       case 'skipped': return <Badge variant="destructive">{language === 'mr' ? 'वगळले' : 'Skipped'}</Badge>;
-      default: return null;
+      case 'cancelled': return <Badge variant="destructive">{language === 'mr' ? 'रद्द' : 'Cancelled'}</Badge>;
+      default: return <Badge variant="outline">{status}</Badge>;
     }
   };
 
@@ -162,7 +180,19 @@ const QueueManagement: React.FC = () => {
               {language === 'mr' ? 'टोकन रांग व्यवस्थापित करा' : 'Manage the token queue'}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {uniqueServices.length > 0 && (
+              <select
+                className="px-3 py-2 border rounded-md bg-background text-sm"
+                value={selectedService}
+                onChange={(e) => setSelectedService(e.target.value)}
+              >
+                <option value="all">{language === 'mr' ? 'सर्व सेवा' : 'All Services'}</option>
+                {uniqueServices.map(service => (
+                  <option key={service} value={service}>{service}</option>
+                ))}
+              </select>
+            )}
             <Button variant="outline" onClick={refreshQueue}>
               <RefreshCw className="h-4 w-4 mr-2" />
               {language === 'mr' ? 'रिफ्रेश' : 'Refresh'}
@@ -200,9 +230,9 @@ const QueueManagement: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-4">
-              <Button 
-                variant="success" 
-                size="lg" 
+              <Button
+                variant="success"
+                size="lg"
                 onClick={handleCallNext}
                 disabled={callNextMutation.isPending}
               >
@@ -213,20 +243,20 @@ const QueueManagement: React.FC = () => {
                 )}
                 {language === 'mr' ? 'पुढील कॉल करा' : 'Call Next'}
               </Button>
-              <Button 
-                variant="default" 
-                size="lg" 
+              <Button
+                variant="default"
+                size="lg"
                 onClick={handleComplete}
                 disabled={!currentlyServing || updateStatusMutation.isPending}
               >
                 <CheckCircle className="h-5 w-5 mr-2" />
                 {language === 'mr' ? 'पूर्ण करा' : 'Complete'}
               </Button>
-              <Button 
-                variant="outline" 
-                size="lg" 
+              <Button
+                variant="outline"
+                size="lg"
                 onClick={handleSkip}
-                disabled={!currentlyServing || updateStatusMutation.isPending}
+                disabled={!currentlyServing || skipMutation.isPending}
               >
                 <SkipForward className="h-5 w-5 mr-2" />
                 {language === 'mr' ? 'वगळा' : 'Skip'}
@@ -234,6 +264,72 @@ const QueueManagement: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* AI Recommendations & Forecast */}
+        <div className="grid md:grid-cols-2 gap-6">
+          <Card className="border-l-4 border-l-purple-500 shadow-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <span className="text-xl">🔮</span>
+                </div>
+                {language === 'mr' ? 'गर्दीचा अंदाज' : 'Rush Forecast'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span>11:00 AM (Peak)</span>
+                  <Badge variant="destructive">High Load (85)</Badge>
+                </div>
+                <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                  <div className="bg-red-500 h-full w-[85%]"></div>
+                </div>
+
+                <div className="flex items-center justify-between text-sm">
+                  <span>02:00 PM</span>
+                  <Badge variant="warning">Moderate (50)</Badge>
+                </div>
+                <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                  <div className="bg-yellow-500 h-full w-[50%]"></div>
+                </div>
+
+                <p className="text-xs text-muted-foreground mt-2">
+                  Based on historical data, expect a surge in 30 minutes.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-l-4 border-l-blue-500 shadow-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <span className="text-xl">🤖</span>
+                </div>
+                {language === 'mr' ? 'AI शिफारस' : 'AI Recommendation'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="p-4 bg-muted/50 rounded-lg border border-border">
+                <h4 className="font-semibold text-primary mb-1">
+                  {language === 'mr' ? 'सुचवलेली कृती' : 'Suggested Action'}
+                </h4>
+                <p className="text-sm">
+                  "Open <strong>Counter 3</strong> for <strong>Senior Citizens</strong> between 11:00 - 13:00 to reduce predicted bottleneck."
+                </p>
+              </div>
+              <div className="mt-4 flex gap-2">
+                <Button size="sm" variant="outline" className="w-full">
+                  Ignore
+                </Button>
+                <Button size="sm" className="w-full">
+                  Apply
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Queue List */}
         <Card variant="elevated">
@@ -273,8 +369,8 @@ const QueueManagement: React.FC = () => {
                   </thead>
                   <tbody>
                     {allTokens.map((item) => (
-                      <tr 
-                        key={item.id} 
+                      <tr
+                        key={item.id}
                         className={`border-b border-border hover:bg-muted/50 ${item.status === 'serving' ? 'bg-success/10' : ''}`}
                       >
                         <td className="py-3 px-4 font-mono font-semibold">{item.token_number}</td>

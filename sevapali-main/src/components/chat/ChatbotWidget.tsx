@@ -123,8 +123,10 @@ const ChatbotWidget: React.FC = () => {
             {isOpen && (
                 <Card className="w-[350px] h-[500px] shadow-2xl animate-in slide-in-from-bottom-10 fade-in flex flex-col border-primary/20">
                     <CardHeader className="p-4 bg-primary text-primary-foreground rounded-t-xl flex flex-row justify-between items-center">
-                        <div className="flex items-center gap-2">
-                            <Bot className="h-6 w-6" />
+                        <div className="flex items-center gap-3">
+                            <div className="bg-white/20 p-2 rounded-full">
+                                <span className="text-xl">🤖</span>
+                            </div>
                             <div>
                                 <CardTitle className="text-base">JanSeva Assistant</CardTitle>
                                 <p className="text-xs opacity-90 text-primary-foreground/80">
@@ -207,10 +209,17 @@ const ChatbotWidget: React.FC = () => {
 
             <Button
                 size="lg"
-                className="h-14 w-14 rounded-full shadow-xl bg-gradient-to-r from-primary to-accent hover:scale-110 transition-transform"
+                className="h-14 w-14 rounded-full shadow-xl bg-gradient-to-r from-violet-600 to-indigo-600 border-2 border-white/20 hover:scale-110 transition-transform overflow-hidden p-0"
                 onClick={() => setIsOpen(!isOpen)}
             >
-                {isOpen ? <X className="h-6 w-6" /> : <Bot className="h-8 w-8" />}
+                {isOpen ? (
+                    <X className="h-6 w-6 text-white" />
+                ) : (
+                    <div className="flex items-center justify-center w-full h-full bg-white text-2xl">
+                        {/* Avatar Figure */}
+                        🤖
+                    </div>
+                )}
             </Button>
         </div>
     );

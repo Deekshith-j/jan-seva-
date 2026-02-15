@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 import { Language, getTranslation, translations } from '@/lib/i18n';
 
+// Language type imported from @/lib/i18n
 type TranslationType = typeof translations.en;
 
 interface LanguageContextType {
@@ -18,7 +19,7 @@ export const LanguageProvider: React.FC<{ children: ReactNode }> = ({ children }
   // Persist language preference
   useEffect(() => {
     const savedLang = localStorage.getItem('janseva-lang') as Language;
-    if (savedLang && (savedLang === 'en' || savedLang === 'mr')) {
+    if (savedLang && ['en', 'mr', 'hi', 'kn', 'te', 'ta'].includes(savedLang)) {
       setLanguage(savedLang);
     }
   }, []);

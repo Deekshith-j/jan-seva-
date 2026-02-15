@@ -667,8 +667,8 @@ const BookToken: React.FC = () => {
                                   <Badge variant="secondary" className="bg-gray-100 text-gray-600">
                                     {o.working_hours || '09:00 AM - 05:00 PM'}
                                   </Badge>
-                                  {o.contact_number && (
-                                    <span className="text-xs text-muted-foreground">Ph: {o.contact_number}</span>
+                                  {o.phone && (
+                                    <span className="text-xs text-muted-foreground">Ph: {o.phone}</span>
                                   )}
                                 </div>
                               </div>
@@ -700,7 +700,11 @@ const BookToken: React.FC = () => {
                         mode="single"
                         selected={selectedDate}
                         onSelect={setSelectedDate}
-                        disabled={(date) => date < new Date() || date.getDay() === 0}
+                        disabled={(date) => {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          return date < today || date.getDay() === 0;
+                        }}
                         className="rounded-md"
                         classNames={{
                           day_selected: "bg-blue-600 text-white hover:bg-blue-600 hover:text-white focus:bg-blue-600 focus:text-white",

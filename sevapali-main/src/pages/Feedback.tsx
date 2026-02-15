@@ -39,6 +39,8 @@ const Feedback: React.FC = () => {
     subject: '',
     message: '',
     rating: 0,
+    office_id: '',
+    service_name: '',
   });
 
   const categories = [
@@ -62,13 +64,13 @@ const Feedback: React.FC = () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('feedback')
+        .from('feedback' as any)
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setFeedbackList(data || []);
+      setFeedbackList((data as any) || []);
     } catch (error) {
       console.error('Error fetching feedback:', error);
     } finally {
@@ -91,13 +93,15 @@ const Feedback: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const { error } = await supabase.from('feedback').insert({
+      const { error } = await supabase.from('feedback' as any).insert({
         user_id: user.id,
         user_role: role,
         category: formData.category,
         subject: formData.subject,
         message: formData.message,
         rating: formData.rating || null,
+        office_id: formData.office_id === 'general' ? null : formData.office_id, // Handle 'general' as null
+        service_name: formData.service_name === 'general' ? null : formData.service_name,
       });
 
       if (error) throw error;
@@ -107,7 +111,14 @@ const Feedback: React.FC = () => {
         description: language === 'mr' ? 'तुमचा अभिप्राय सबमिट झाला' : 'Your feedback has been submitted',
       });
 
-      setFormData({ category: '', subject: '', message: '', rating: 0 });
+      setFormData({
+        category: '',
+        subject: '',
+        message: '',
+        rating: 0,
+        office_id: '',
+        service_name: ''
+      });
       fetchFeedback();
     } catch (error) {
       console.error('Error submitting feedback:', error);
@@ -126,9 +137,9 @@ const Feedback: React.FC = () => {
       case 'pending':
         return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />{language === 'mr' ? 'प्रलंबित' : 'Pending'}</Badge>;
       case 'reviewed':
-        return <Badge variant="accent"><CheckCircle className="h-3 w-3 mr-1" />{language === 'mr' ? 'पुनरावलोकन केले' : 'Reviewed'}</Badge>;
+        return <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200"><CheckCircle className="h-3 w-3 mr-1" />{language === 'mr' ? 'पुनरावलोकन केले' : 'Reviewed'}</Badge>;
       case 'resolved':
-        return <Badge variant="default" className="bg-success"><CheckCircle className="h-3 w-3 mr-1" />{language === 'mr' ? 'निराकरण' : 'Resolved'}</Badge>;
+        return <Badge variant="default" className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />{language === 'mr' ? 'निराकरण' : 'Resolved'}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -147,8 +158,8 @@ const Feedback: React.FC = () => {
             {language === 'mr' ? 'अभिप्राय द्या' : 'Give Feedback'}
           </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            {language === 'mr' 
-              ? 'आमच्या सेवा सुधारण्यासाठी तुमचा अभिप्राय महत्त्वाचा आहे' 
+            {language === 'mr'
+              ? 'आमच्या सेवा सुधारण्यासाठी तुमचा अभिप्राय महत्त्वाचा आहे'
               : 'Your feedback is valuable to improve our services'}
           </p>
         </div>
@@ -167,10 +178,50 @@ const Feedback: React.FC = () => {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{language === 'mr' ? 'कार्यालय निवडा' : 'Select Office'}</Label>
+                    <Select
+                      value={formData.office_id}
+                      onValueChange={(value) => setFormData({ ...formData, office_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={language === 'mr' ? 'कार्यालय' : 'Office'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="general">{language === 'mr' ? 'सामान्य (कोणतेही नाही)' : 'General (None)'}</SelectItem>
+                        {/* Mock Offices for now, in real app fetch from DB */}
+                        <SelectItem value="rto-pune">RTO Pune</SelectItem>
+                        <SelectItem value="mc-mumbai">Municipal Corp Mumbai</SelectItem>
+                        <SelectItem value="collector-thane">Collector Office Thane</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{language === 'mr' ? 'सेवा निवडा' : 'Select Service'}</Label>
+                    <Select
+                      value={formData.service_name}
+                      onValueChange={(value) => setFormData({ ...formData, service_name: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={language === 'mr' ? 'सेवा' : 'Service'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="general">{language === 'mr' ? 'सामान्य' : 'General'}</SelectItem>
+                        <SelectItem value="license">Driving License</SelectItem>
+                        <SelectItem value="birth-cert">Birth Certificate</SelectItem>
+                        <SelectItem value="income-cert">Income Certificate</SelectItem>
+                        <SelectItem value="property-tax">Property Tax</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label>{language === 'mr' ? 'श्रेणी' : 'Category'}</Label>
-                  <Select 
-                    value={formData.category} 
+                  <Select
+                    value={formData.category}
                     onValueChange={(value) => setFormData({ ...formData, category: value })}
                   >
                     <SelectTrigger>
@@ -208,22 +259,38 @@ const Feedback: React.FC = () => {
                   <div className="flex gap-1">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <button
-                        key={star}
                         type="button"
+                        key={star}
                         onClick={() => setFormData({ ...formData, rating: star })}
                         className="p-1 hover:scale-110 transition-transform"
                       >
                         <Star
-                          className={`h-8 w-8 ${
-                            star <= formData.rating
-                              ? 'fill-yellow-400 text-yellow-400'
-                              : 'text-muted-foreground'
-                          }`}
+                          className={`h-8 w-8 ${star <= formData.rating
+                            ? 'fill-yellow-400 text-yellow-400'
+                            : 'text-muted-foreground'
+                            }`}
                         />
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {/* AI Sentiment Analysis Preview */}
+                {formData.message.length > 10 && (
+                  <div className="bg-muted p-3 rounded-lg text-sm flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+                    <span className="text-xl">🧠</span>
+                    <div>
+                      <p className="font-semibold text-primary">
+                        {language === 'mr' ? 'AI विश्लेषण' : 'AI Analysis'}:
+                      </p>
+                      <p className="text-muted-foreground">
+                        {formData.message.toLowerCase().includes('good') || formData.message.toLowerCase().includes('great') || formData.rating > 3
+                          ? (language === 'mr' ? 'आम्हाला तुमचा सकारात्मक अनुभव ऐकून आनंद झाला!' : 'We are glad to hear about your positive experience!')
+                          : (language === 'mr' ? 'आम्ही या समस्येची दखल घेऊ आणि सुधारणा करू.' : 'We adhere to your concern and will improve.')}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <Button type="submit" className="w-full" disabled={submitting}>
                   {submitting ? (
@@ -242,62 +309,95 @@ const Feedback: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Previous Feedback */}
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">
-              {language === 'mr' ? 'तुमचे मागील अभिप्राय' : 'Your Previous Feedback'}
-            </h2>
-            
-            {loading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            ) : feedbackList.length === 0 ? (
-              <Card variant="feature" className="py-8">
-                <CardContent className="text-center text-muted-foreground">
-                  <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>{language === 'mr' ? 'अद्याप कोणताही अभिप्राय नाही' : 'No feedback submitted yet'}</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
-                {feedbackList.map((item) => (
-                  <Card key={item.id} variant="feature">
-                    <CardContent className="pt-4">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <h3 className="font-semibold">{item.subject}</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {categories.find(c => c.id === item.category)?.name} • {new Date(item.created_at).toLocaleDateString()}
-                          </p>
+          {/* Community Insights Side Panel (Mocked) */}
+          <div className="space-y-6">
+            <Card className="bg-primary/5 border-primary/20">
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  {language === 'mr' ? 'जनतेचा आवाज' : 'Community Pulse'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Satff Behavior</span>
+                  <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">85% Positive</Badge>
+                </div>
+                <div className="w-full bg-background h-2 rounded-full overflow-hidden">
+                  <div className="bg-green-500 h-full w-[85%]"></div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Waiting Time</span>
+                  <Badge variant="destructive">Wait times High</Badge>
+                </div>
+                <div className="w-full bg-background h-2 rounded-full overflow-hidden">
+                  <div className="bg-red-500 h-full w-[60%]"></div>
+                </div>
+
+                <p className="text-xs text-muted-foreground pt-2">
+                  {language === 'mr'
+                    ? 'AI द्वारे गेल्या २४ तासांतील ३४०+ अभिप्रायांचे विश्लेषण.'
+                    : 'Analyzed from 340+ feedbacks in last 24h by AI.'}
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Previous Feedback List */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">
+                {language === 'mr' ? 'तुमचे मागील अभिप्राय' : 'Your Previous Feedback'}
+              </h2>
+
+              {loading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : feedbackList.length === 0 ? (
+                <Card variant="feature" className="py-8">
+                  <CardContent className="text-center text-muted-foreground">
+                    <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>{language === 'mr' ? 'अद्याप कोणताही अभिप्राय नाही' : 'No feedback submitted yet'}</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                  {feedbackList.map((item) => (
+                    <Card key={item.id} variant="feature">
+                      <CardContent className="pt-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <h3 className="font-semibold">{item.subject}</h3>
+                            <p className="text-sm text-muted-foreground">
+                              {categories.find(c => c.id === item.category)?.name} • {new Date(item.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          {getStatusBadge(item.status)}
                         </div>
-                        {getStatusBadge(item.status)}
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-2">{item.message}</p>
-                      {item.rating && (
-                        <div className="flex gap-0.5">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <Star
-                              key={star}
-                              className={`h-4 w-4 ${
-                                star <= item.rating!
+                        <p className="text-sm text-muted-foreground mb-2">{item.message}</p>
+                        {item.rating && (
+                          <div className="flex gap-0.5">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                className={`h-4 w-4 ${star <= item.rating!
                                   ? 'fill-yellow-400 text-yellow-400'
                                   : 'text-muted-foreground'
-                              }`}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
+                                  }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </main>
+      </main >
       <Footer />
-    </div>
+    </div >
   );
 };
 

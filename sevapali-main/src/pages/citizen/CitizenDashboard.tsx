@@ -160,8 +160,11 @@ const CitizenDashboard: React.FC = () => {
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
-                            <Badge variant={token.status === 'serving' ? 'success' : 'secondary'}>
-                              {token.status.toUpperCase()}
+                            <Badge variant={token.status === 'serving' ? 'success' : token.status === 'waiting' ? 'default' : 'secondary'}>
+                              {token.status === 'serving' ? (language === 'mr' ? 'सेवेत' : 'Now Serving') :
+                                token.status === 'waiting' ? (language === 'mr' ? 'चेक-इन केले' : 'Checked In') :
+                                  token.status === 'pending' ? (language === 'mr' ? 'बुक केले' : 'Booked') :
+                                    token.status.toUpperCase()}
                             </Badge>
                             <span className="text-sm font-mono text-muted-foreground">{token.token_number}</span>
                           </div>

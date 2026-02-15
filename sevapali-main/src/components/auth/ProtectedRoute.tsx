@@ -29,23 +29,39 @@ const ProtectedRoute = ({ children, role }: ProtectedRouteProps) => {
 
                 setAuthenticated(true);
 
-                // Fetch user role from database
-                const { data: userData, error } = await supabase
-                    .from('user_roles')
-                    .select('role')
-                    .eq('user_id', session.user.id)
-                    .single();
+                // Fetch user role from database with retry logic
+                let attempts = 0;
+                let roleFound = null;
 
-                if (error) {
-                    console.error('Error fetching user role:', error);
+                while (attempts < 3 && !roleFound) {
+                    const { data: userData, error } = await supabase
+                        .from('user_roles')
+                        .select('role')
+                        .eq('user_id', session.user.id)
+                        .maybeSingle();
+
+                    if (userData?.role) {
+                        roleFound = userData.role;
+                    } else {
+                        // Wait 1s before retry
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        attempts++;
+                    }
+                }
+
+                if (!roleFound) {
+                    console.error('User role not found after retries.');
+                    // Don't toast error immediately, might be delay. But if truly missing, user is stuck.
+                    // Let's assume citizen default? No, dangerous.
+                    // Just set authenticated false to force login or show error.
                     toast({
                         variant: "destructive",
-                        title: "Authentication Error",
-                        description: "Could not verify user permissions."
+                        title: "Account Setup Pending",
+                        description: "Your account is being set up. Please try logging in again in a moment."
                     });
                     setAuthenticated(false);
                 } else {
-                    setUserRole(userData?.role || null);
+                    setUserRole(roleFound);
                 }
             } catch (error) {
                 console.error('Auth check error:', error);
